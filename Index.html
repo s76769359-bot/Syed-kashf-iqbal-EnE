@@ -177,7 +177,7 @@
                 </div>
             </header>
 
-            <main id="chat-container" class="flex-1 overflow-y-auto p-4 sm:p-6 pb-32 scroll-smooth">
+            <main id="chat-container" class="flex-1 overflow-y-auto p-4 sm:p-6 pb-32">
                 <div id="messages-wrapper" class="max-w-3xl mx-auto flex flex-col gap-6">
                     </div>
                 <div id="empty-state" class="hidden h-full flex flex-col items-center justify-center text-center mt-20 opacity-50">
@@ -256,6 +256,7 @@
             };
 
             let state = { ...DEFAULT_STATE };
+            let isGenerating = false; // Fix: Prevent multiple API calls simultaneously
 
             function loadState() {
                 try {
@@ -356,4 +357,56 @@
                     els.themeIconDark.classList.add('hidden');
                     els.themeIconLight.classList.remove('hidden');
                     els.themeText.textContent = 'Dark Mode';
-         
+                }
+            }
+
+            function autoResizeTextarea() {
+                els.messageInput.style.height = 'auto';
+                els.messageInput.style.height = Math.min(els.messageInput.scrollHeight, 200) + 'px';
+                validateInput();
+            }
+
+            function validateInput() {
+                const text = els.messageInput.value.trim();
+                // Button remains disabled if input is empty OR if AI is generating
+                els.sendBtn.disabled = text.length === 0 || isGenerating;
+            }
+
+            // ----------------------------------------
+            // SIDEBAR / UI TOGGLES
+            // ----------------------------------------
+            function toggleSidebar(forceOpen = null) {
+                const isOpen = !els.sidebar.classList.contains('-translate-x-full');
+                const willOpen = forceOpen !== null ? forceOpen : !isOpen;
+
+                if (willOpen) {
+                    els.sidebar.classList.remove('hidden');
+                    // Small delay to allow display:block to apply before transition
+                    setTimeout(() => {
+                        els.sidebar.classList.remove('-translate-x-full');
+                        els.sidebarOverlay.classList.remove('hidden');
+                    }, 10);
+                } else {
+                    els.sidebar.classList.add('-translate-x-full');
+                    els.sidebarOverlay.classList.add('hidden');
+                    // Wait for transition
+                    setTimeout(() => {
+                        if (els.sidebar.classList.contains('-translate-x-full')) {
+                            els.sidebar.classList.add('hidden');
+                            els.sidebar.classList.remove('md:flex'); // Reset for mobile
+                            setTimeout(() => els.sidebar.classList.add('md:flex'), 10); // Re-add for desktop
+                        }
+                    }, 300);
+                }
+            }
+
+            // ----------------------------------------
+            // CHAT MANAGEMENT
+            // ----------------------------------------
+            function createNewChat() {
+                if (isGenerating) return; // Prevent new chat while generating
+                
+                const newChat = {
+                    id: generateId(),
+                    title: 'New Chat',
+                    messages
