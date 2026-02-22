@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Universal AI Chat</title>
+    
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        gemini: {
+                            blue: '#4285F4',
+                            red: '#EA4335',
+                            yellow: '#FBBC05',
+                            green: '#34A853',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <style>
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #475569;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Prevent pull-to-refresh on mobile */
+        body {
+            overscroll-behavior-y: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Loading Screen */
+        #loading {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #ffffff;
+            color: #1f2937;
+            font-size: 1.25rem;
+            font-weight: 600;
+            z-index: 9999;
+        }
+        .dark #loading {
+            background: #111827;
+            color: #f3f4f6;
+        }
+
+        /* Markdown styling tweaks */
+        .prose pre {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+        }
+        .prose code {
+            color: #ef4444;
+            background-color: #fee2e2;
+            padding: 0.125rem 0.25rem;
+            border-radius: 0.25rem;
+            font-weight: 500;
+        }
+        .dark .prose code {
+            color: #fca5a5;
+            background-color: #450a0a;
+        }
+        .prose pre code {
+            color: inherit;
+            background-color: transparent;
+            padding: 0;
+            font-weight: normal;
+        }
+        
+        /* Blinking cursor for streaming */
+        .cursor-blink::after {
+            content: '▋';
+            display: inline-block;
+            animation: blink 1s step-end infinite;
+            margin-left: 2px;
+            color: #4285F4;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        /* Auto-resizing textarea */
+        textarea {
+            resize: none;
+            overflow-y: hidden;
+            min-height: 48px;
+            max-height: 200px;
+        }
+    </style>
+</head>
+<body class="bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 antialiased font-sans m-0 p-0 flex flex-col min-h-[100dvh]">
+
+    <div id="loading">
+        <div class="flex flex-col items-center gap-4">
+            <svg class="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Loading App...
+        </div>
+    </div>
+
+    <div id="app" class="hidden w-full flex-1 flex min-h-[100dvh] relative">
+
+        <div id="sidebar-overlay" class="fixed inset-0 bg-black/50 z-30 hidden md:hidden transition-opacity"></div>
+
+        <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-72 transform -translate-x-full transition-transform duration-300 ease-in-out md:relative md:translate-x-0 bg-gray-50 dark:bg-gray-800/50 border-r border-gray-200 dark:border-gray-700 flex flex-col hidden md:flex h-[100dvh]">
+            <div class="p-4 flex items-center justify-between">
+                <button id="new-chat-btn" class="flex-1 flex items-center gap-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 px-4 py-2 rounded-full font-medium transition-colors shadow-sm">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    New Chat
+                </button>
+                <button id="close-sidebar-btn" class="md:hidden ml-2 p-2 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-3 space-y-1" id="chat-list">
+                </div>
+
+            <div class="p-4 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+                <button id="theme-toggle" class="flex items-center gap-3 px-3 py-2 w-full text-left rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                    <svg id="theme-icon-dark" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                    <svg id="theme-icon-light" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    <span id="theme-text">Toggle Theme</span>
+                </button>
+                <button id="settings-btn" class="flex items-center gap-3 px-3 py-2 w-full text-left rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    Settings
+                </button>
+            </div>
+        </aside>
+
+        <div class="flex-1 flex flex-col min-h-[100dvh] w-full relative">
+            
+            <header class="sticky top-0 z-20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 p-3 flex items-center justify-between shadow-sm">
+                <div class="flex items-center gap-3">
+                    <button id="menu-btn" class="md:hidden p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                    </button>
+                    <h1 class="text-xl font-semibold tracking-tight text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                        <span class="bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">AI Chat</span>
+                    </h1>
+                </div>
+                <div class="text-xs font-mono bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-gray-500 dark:text-gray-400 truncate max-w-[120px] sm:max-w-xs" id="current-model-display">
+                    Model
+                </div>
+            </header>
+
+            <main id="chat-container" class="flex-1 overflow-y-auto p-4 sm:p-6 pb-32 scroll-smooth">
+                <div id="messages-wrapper" class="max-w-3xl mx-auto flex flex-col gap-6">
+                    </div>
+                <div id="empty-state" class="hidden h-full flex flex-col items-center justify-center text-center mt-20 opacity-50">
+                    <div class="w-16 h-16 mb-4 bg-gradient-to-tr from-blue-500 to-purple-500 rounded-2xl flex items-center justify-center rotate-12">
+                        <svg class="w-8 h-8 text-white -rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                    </div>
+                    <h2 class="text-2xl font-bold mb-2">How can I help you today?</h2>
+                    <p class="text-sm">Start typing a message below to begin the conversation.</p>
+                </div>
+            </main>
+
+            <div class="sticky bottom-0 w-full bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 pt-2 pb-4 sm:pb-6 px-4 shadow-[0_-10px_20px_rgba(0,0,0,0.02)] dark:shadow-[0_-10px_20px_rgba(0,0,0,0.2)]">
+                <div class="max-w-3xl mx-auto relative flex items-end gap-2 bg-gray-100 dark:bg-gray-800 rounded-3xl p-2 border border-gray-200 dark:border-gray-700 focus-within:ring-2 ring-blue-500/50 transition-all">
+                    <textarea id="message-input" rows="1" placeholder="Type your message here..." class="flex-1 max-h-48 bg-transparent border-none focus:ring-0 resize-none py-3 px-4 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 m-0 outline-none leading-relaxed"></textarea>
+                    
+                    <button id="send-btn" disabled class="mb-1 mr-1 p-2.5 rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white disabled:text-gray-500 transition-colors flex items-center justify-center flex-shrink-0 w-10 h-10">
+                        <svg class="w-5 h-5 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                    </button>
+                </div>
+                <div class="text-center mt-2 text-[10px] text-gray-400 dark:text-gray-500">
+                    AI can make mistakes. Consider verifying important information.
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="settings-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white dark:bg-gray-800 w-full max-w-md rounded-2xl shadow-2xl flex flex-col overflow-hidden transform transition-all">
+            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800/80">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Settings</h3>
+                <button id="close-settings-btn" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="p-6 overflow-y-auto space-y-5">
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">OpenRouter API Key <span class="text-red-500">*</span></label>
+                    <input type="password" id="api-key-input" class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg px-4 py-2 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="sk-or-v1-...">
+                    <p class="text-xs text-gray-500 mt-1">Get your key from <a href="https://openrouter.ai/keys" target="_blank" class="text-blue-500 hover:underline">openrouter.ai</a></p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model Name</label>
+                    <input type="text" id="model-input" class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg px-4 py-2 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">System Prompt</label>
+                    <textarea id="system-prompt-input" rows="3" class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg px-4 py-2 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none"></textarea>
+                </div>
+
+            </div>
+            <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/80 flex justify-end gap-3">
+                <button id="cancel-settings-btn" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">Cancel</button>
+                <button id="save-settings-btn" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // ----------------------------------------
+            // STATE MANAGEMENT
+            // ----------------------------------------
+            const DEFAULT_STATE = {
+                apiKey: '',
+                model: 'deepseek/deepseek-r1:free',
+                systemPrompt: 'You are a highly capable, helpful, and concise AI assistant.',
+                chats: [],
+                currentChatId: null,
+                darkMode: window.matchMedia('(prefers-color-scheme: dark)').matches
+            };
+
+            let state = { ...DEFAULT_STATE };
+
+            function loadState() {
+                try {
+                    const saved = localStorage.getItem('universalAiState');
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        state = { ...DEFAULT_STATE, ...parsed };
+                    }
+                } catch (e) {
+                    console.error("Failed to load state from localStorage:", e);
+                }
+            }
+
+            function saveState() {
+                try {
+                    localStorage.setItem('universalAiState', JSON.stringify(state));
+                } catch (e) {
+                    console.error("Failed to save state to localStorage:", e);
+                }
+            }
+
+            // ----------------------------------------
+            // DOM ELEMENTS
+            // ----------------------------------------
+            const els = {
+                loading: document.getElementById('loading'),
+                app: document.getElementById('app'),
+                sidebar: document.getElementById('sidebar'),
+                sidebarOverlay: document.getElementById('sidebar-overlay'),
+                chatList: document.getElementById('chat-list'),
+                messagesWrapper: document.getElementById('messages-wrapper'),
+                emptyState: document.getElementById('empty-state'),
+                messageInput: document.getElementById('message-input'),
+                sendBtn: document.getElementById('send-btn'),
+                chatContainer: document.getElementById('chat-container'),
+                currentModelDisplay: document.getElementById('current-model-display'),
+                
+                // Buttons
+                menuBtn: document.getElementById('menu-btn'),
+                newChatBtn: document.getElementById('new-chat-btn'),
+                closeSidebarBtn: document.getElementById('close-sidebar-btn'),
+                themeToggle: document.getElementById('theme-toggle'),
+                settingsBtn: document.getElementById('settings-btn'),
+                
+                // Settings Modal
+                settingsModal: document.getElementById('settings-modal'),
+                closeSettingsBtn: document.getElementById('close-settings-btn'),
+                cancelSettingsBtn: document.getElementById('cancel-settings-btn'),
+                saveSettingsBtn: document.getElementById('save-settings-btn'),
+                apiKeyInput: document.getElementById('api-key-input'),
+                modelInput: document.getElementById('model-input'),
+                systemPromptInput: document.getElementById('system-prompt-input'),
+
+                // Theme Icons
+                themeIconDark: document.getElementById('theme-icon-dark'),
+                themeIconLight: document.getElementById('theme-icon-light'),
+                themeText: document.getElementById('theme-text')
+            };
+
+            // ----------------------------------------
+            // UTILITIES
+            // ----------------------------------------
+            const generateId = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
+
+            function escapeHTML(str) {
+                if (!str) return '';
+                return str.replace(/[&<>'"]/g, 
+                    tag => ({
+                        '&': '&amp;',
+                        '<': '&lt;',
+                        '>': '&gt;',
+                        "'": '&#39;',
+                        '"': '&quot;'
+                    }[tag])
+                );
+            }
+
+            // Setup Marked.js configuration
+            if (typeof marked !== 'undefined') {
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true
+                });
+            }
+
+            function scrollToBottom() {
+                els.chatContainer.scrollTop = els.chatContainer.scrollHeight;
+            }
+
+            function applyTheme() {
+                if (state.darkMode) {
+                    document.documentElement.classList.add('dark');
+                    els.themeIconDark.classList.remove('hidden');
+                    els.themeIconLight.classList.add('hidden');
+                    els.themeText.textContent = 'Light Mode';
+                } else {
+                    document.documentElement.classList.remove('dark');
+                    els.themeIconDark.classList.add('hidden');
+                    els.themeIconLight.classList.remove('hidden');
+                    els.themeText.textContent = 'Dark Mode';
+         
